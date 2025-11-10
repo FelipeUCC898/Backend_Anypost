@@ -36,16 +36,25 @@ public class ImageGenerationService {
             @Value("${openai.api.base-url:https://api.openai.com/v1}") String apiBaseUrl,
             @Value("${openai.images.model:dall-e-3}") String defaultModel) {
 
-        if (!StringUtils.hasText(apiKey)) {
+        String sanitizedApiKey = sanitizeConfigValue(apiKey);
+        if (!StringUtils.hasText(sanitizedApiKey)) {
             throw new IllegalStateException("OpenAI API key is not configured");
         }
 
-        this.defaultModel = defaultModel;
-        String normalizedBaseUrl = apiBaseUrl.endsWith("/") ? apiBaseUrl.substring(0, apiBaseUrl.length() - 1) : apiBaseUrl;
+        String sanitizedBaseUrl = sanitizeConfigValue(apiBaseUrl);
+        if (!StringUtils.hasText(sanitizedBaseUrl)) {
+            sanitizedBaseUrl = "https://api.openai.com/v1";
+        }
+        String normalizedBaseUrl = sanitizedBaseUrl.endsWith("/")
+                ? sanitizedBaseUrl.substring(0, sanitizedBaseUrl.length() - 1)
+                : sanitizedBaseUrl;
+
+        String sanitizedModel = sanitizeConfigValue(defaultModel);
+        this.defaultModel = StringUtils.hasText(sanitizedModel) ? sanitizedModel : "dall-e-3";
 
         this.webClient = webClientBuilder
                 .baseUrl(normalizedBaseUrl)
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + sanitizedApiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
     }
@@ -126,5 +135,17 @@ public class ImageGenerationService {
         private String revisedPrompt;
         @JsonProperty("b64_json")
         private String b64Json;
+    }
+
+    private String sanitizeConfigValue(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if ((trimmed.startsWith("\"") && trimmed.endsWith("\""))
+                || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
+        }
+        return trimmed;
     }
 }
