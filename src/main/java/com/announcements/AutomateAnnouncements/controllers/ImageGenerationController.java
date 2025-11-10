@@ -1,10 +1,13 @@
 package com.announcements.AutomateAnnouncements.controllers;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.announcements.AutomateAnnouncements.dtos.request.ImageGenerationRequestDTO;
@@ -29,5 +32,15 @@ public class ImageGenerationController {
             @Valid @RequestBody ImageGenerationRequestDTO request) {
         ImageGenerationResponseDTO response = imageGenerationService.generateImage(request);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/proxy")
+    @Operation(summary = "Descargar imagen generada", description = "Proxy seguro para recuperar la imagen generada sin restricciones de CORS")
+    public ResponseEntity<byte[]> proxyImage(@RequestParam("imageUrl") String imageUrl) {
+        ImageGenerationService.ImageProxyResult result = imageGenerationService.proxyImageFromUrl(imageUrl);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + result.filename() + "\"")
+                .contentType(result.contentType())
+                .body(result.data());
     }
 }

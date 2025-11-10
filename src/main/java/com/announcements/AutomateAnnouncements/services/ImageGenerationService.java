@@ -1,5 +1,7 @@
 package com.announcements.AutomateAnnouncements.services;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -121,6 +123,92 @@ public class ImageGenerationService {
         dto.setStyle(style);
         dto.setGeneratedAt(LocalDateTime.now());
         return dto;
+    }
+
+    public ImageProxyResult proxyImageFromUrl(String imageUrl) {
+        URI uri = validateImageUrl(imageUrl);
+        log.info("Proxying AI image from host {}", uri.getHost());
+
+        try {
+            return webClient.get()
+                    .uri(uri)
+                    .accept(MediaType.APPLICATION_OCTET_STREAM)
+                    .exchangeToMono(clientResponse -> {
+                        if (clientResponse.statusCode().isError()) {
+                            return clientResponse.bodyToMono(String.class)
+                                    .defaultIfEmpty("<empty body>")
+                                    .flatMap(body -> {
+                                        log.error("Failed to download AI image: status={}, body={}",
+                                                clientResponse.statusCode(), body);
+                                        return Mono.error(new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                                                "No se pudo descargar la imagen generada."));
+                                    });
+                        }
+
+                        MediaType mediaType = clientResponse.headers().contentType()
+                                .orElse(MediaType.IMAGE_PNG);
+                        String filename = extractFilename(uri.getPath(), mediaType);
+
+                        return clientResponse.bodyToMono(byte[].class)
+                                .map(bytes -> new ImageProxyResult(bytes, mediaType, filename));
+                    })
+                    .blockOptional()
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                            "El servicio de imágenes no devolvió datos."));
+        } catch (ResponseStatusException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.error("Unexpected error downloading AI image from {}", uri, ex);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "No se pudo descargar la imagen generada. Intenta nuevamente.");
+        }
+    }
+
+    private URI validateImageUrl(String imageUrl) {
+        if (!StringUtils.hasText(imageUrl)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La URL de la imagen es obligatoria.");
+        }
+
+        try {
+            URI uri = new URI(imageUrl);
+            if (!"https".equalsIgnoreCase(uri.getScheme())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Solo se permiten URLs HTTPS.");
+            }
+
+            String host = uri.getHost();
+            if (host == null || !host.endsWith(".blob.core.windows.net")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Solo se permiten URLs de Azure Blob Storage.");
+            }
+
+            return uri;
+        } catch (URISyntaxException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La URL de la imagen no es válida.");
+        }
+    }
+
+    private String extractFilename(String path, MediaType mediaType) {
+        if (StringUtils.hasText(path)) {
+            int lastSlash = path.lastIndexOf('/');
+            String candidate = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+            if (StringUtils.hasText(candidate)) {
+                return candidate;
+            }
+        }
+
+        String extension = "png";
+        if (MediaType.IMAGE_JPEG.isCompatibleWith(mediaType)) {
+            extension = "jpg";
+        } else if (MediaType.IMAGE_GIF.isCompatibleWith(mediaType)) {
+            extension = "gif";
+        } else if (MediaType.valueOf("image/webp").isCompatibleWith(mediaType)) {
+            extension = "webp";
+        }
+
+        return "generated-" + System.currentTimeMillis() + "." + extension;
+    }
+
+    public record ImageProxyResult(byte[] data, MediaType contentType, String filename) {
     }
 
     @Data
