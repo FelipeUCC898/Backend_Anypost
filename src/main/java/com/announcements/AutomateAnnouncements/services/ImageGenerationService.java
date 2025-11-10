@@ -63,6 +63,7 @@ public class ImageGenerationService {
         payload.put("size", size);
         payload.put("quality", quality);
         payload.put("style", style);
+        payload.put("response_format", "url");
 
         log.info("Requesting OpenAI image generation with size={}, quality={}, style={}", size, quality, style);
 
@@ -90,7 +91,14 @@ public class ImageGenerationService {
         }
 
         OpenAiImageData imageData = response.getData().get(0);
-        if (!StringUtils.hasText(imageData.getUrl())) {
+        String imageUrl = imageData.getUrl();
+
+        if (!StringUtils.hasText(imageUrl) && StringUtils.hasText(imageData.getB64Json())) {
+            imageUrl = "data:image/png;base64," + imageData.getB64Json();
+            log.warn("OpenAI image API returned base64 data instead of URL. Converting to data URI.");
+        }
+
+        if (!StringUtils.hasText(imageUrl)) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "El servicio de imágenes no devolvió una URL válida.");
         }
@@ -98,7 +106,7 @@ public class ImageGenerationService {
         ImageGenerationResponseDTO dto = new ImageGenerationResponseDTO();
         dto.setPrompt(prompt);
         dto.setRevisedPrompt(imageData.getRevisedPrompt());
-        dto.setImageUrl(imageData.getUrl());
+        dto.setImageUrl(imageUrl);
         dto.setSize(size);
         dto.setQuality(quality);
         dto.setStyle(style);
@@ -116,5 +124,7 @@ public class ImageGenerationService {
         private String url;
         @JsonProperty("revised_prompt")
         private String revisedPrompt;
+        @JsonProperty("b64_json")
+        private String b64Json;
     }
 }
